@@ -1,16 +1,17 @@
 !Important! Note
 ----
 
-This is a seriously modified fork of the original package.
+This is a seriously modified fork of the original library.
 * The REST api functions have been changed from callbacks to returning promises.
 * The Websocket implementation is completely changed.
-*   Callbacks are removed and replaced with an event like system.
-*   Now uses V2 websocket interface. (c2 hub instead of CoreHub)
+  * Callbacks are removed and replaced with an event like system.
+  * Now uses V2 websocket interface. (c2 hub instead of CoreHub)
+    * Bittrex's compressed and minified data is decompressed and un-minified. All data is returned as objects.
 * Automatic rate limiting is implemented across all api calls.
 * inverse_callback_arguments has been removed since callbacks are removed.
 * hmac_sha512.js is no longer necessary and has been replaced by the crypto library.
 
-The rest of the text following is unchanged from the upstream source. The documentation will change as I get the time to update it.
+Most of the rest of the text following is unchanged from the upstream source. The documentation will change as I get the time to update it.
 
 
 Also, the **websocket code has changed** after Bittrex switched to using Cloudflare
@@ -26,14 +27,14 @@ The Bittrex API data can be received either as a GET request or via Websockets A
 
 Documentation for the Bittrex API: https://bittrex.com/Home/Api
 
-This Library is licensed under the [MIT license](https://github.com/dparlevliet/node.bittrex.api/blob/master/LICENSE).
+This Library is licensed under the [MIT license](https://github.com/DKBrown14/node.bittrex.api/blob/master/LICENSE).
 
 
 Contributors
 ----
 Thanks go to the people who have contributed code to this Library.
-
 * [n0mad01](https://github.com/n0mad01) Special kudos - the original creator of the library. Thanks for the hard work.
+* [dparlevliet](https://github.com/dparlevliet) Special kudos - thanks for keeping the project alive.
 * [cyberwlf](https://github.com/armandohg) & [armandohg](https://github.com/armandohg) - Special thanks to them for the cloudflare websocket research and fix but also thanks to everyone else in [issue #67](https://github.com/n0mad01/node.bittrex.api/issues/67)
 * [samuelhei](https://github.com/samuelhei) Special kudos - thanks to him all missing calls are complemented as also structural improvements have been made.
 * [mhuggins](https://github.com/mhuggins)
@@ -93,7 +94,7 @@ Advanced start
 
 fetch the project via git:
 ```sh
-$ git clone https://github.com/dparlevliet/node.bittrex.api.git
+$ git clone https://github.com/DKBrown14/node.bittrex.api.git
 ```
 
 then meet the package dependencies:
@@ -113,13 +114,7 @@ bittrex.options({
   'apikey' : API_KEY,
   'apisecret' : API_SECRET,
   'verbose' : true,
-  'cleartext' : false
 });
-```
-
-By default the returned data is an object, in order to get clear text you have to add the option **cleartext** (streams will always return text):
-```javascript
-'cleartext' : true
 ```
 
 The baseUrl itself can also be set via options
@@ -127,20 +122,6 @@ The baseUrl itself can also be set via options
 'baseUrl' : 'https://bittrex.com/api/v1',
 'baseUrlv2' : 'https://bittrex.com/Api/v2.0',
 ```
-
-Change the callbacks arguments sequence
-```javascript
-'inverse_callback_arguments' : true,
-```
-This simply changes the sequence in which the arguments are passed, instead of e.g.:
-```javascript
-getmarkethistory({market : 'USDT-BTC'}, function(data, error) {});
-```
-you'll get the reversed order:
-```javascript
-getmarkethistory({market : 'USDT-BTC'}, function(data, error) {});
-```
-
 
 Websockets
 --
@@ -304,14 +285,11 @@ Websockets depends on the following npm packages:
 - signalR websockets client https://www.npmjs.com/package/signalrjs
 - jsonic JSON parser https://www.npmjs.com/package/jsonic
 - cloudscraper https://www.npmjs.com/package/cloudscraper
+- simple-rate-limiter https://www.npmjs.com/package/simple-rate-limiter
 
 
 Other libraries utilized:
 - request https://www.npmjs.org/package/request
-
-For HmacSHA512 this package is using a part of Googles Crypto.js (the node crypt package could not provide any appropriate result).
-- http://crypto-js.googlecode.com/svn/tags/3.1.2/build/rollups/hmac-sha512.js
-
 
 Error examples
 ---

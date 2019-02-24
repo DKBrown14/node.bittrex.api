@@ -1,9 +1,9 @@
 /* ============================================================
  * node.bittrex.api
- * https://github.com/dparlevliet/node.bittrex.api
+ * https://github.com/DKBrown14/node.bittrex.api
  *
  * ============================================================
- * Copyright 2014-, Adrian Soluch, David Parlevliet
+ * Copyright 2014-, Adrian Soluch, David Parlevliet, Dean Brown
  * Released under the MIT License
  * ============================================================ */
 var RATE = 1;
@@ -38,11 +38,9 @@ var NodeBittrexApi = function(options) {
     baseUrlv2: 'https://bittrex.com/Api/v2.0',
     websockets_baseurl: 'wss://socket.bittrex.com/signalr',
     websockets_hubs: 'c2',
-//    websockets_hubs: 'CoreHub',
     apikey: 'APIKEY',
     apisecret: 'APISECRET',
     verbose: false,
-    cleartext: false,
     websockets: {
       autoReconnect: true,
     },
@@ -111,7 +109,6 @@ var NodeBittrexApi = function(options) {
       uri = updateQueryStringParameter(uri, o[i], options[o[i]]);
     }
 
-//    op.headers.apisign = hmac_sha512.HmacSHA512(uri, opts.apisecret); // setting the HMAC hash `apisign` http header
     op.headers.apisign = crypto.createHmac('sha512', opts.apisecret).update(uri).digest('hex'); // setting the HMAC hash `apisign` http header
     op.uri = uri;
     op.timeout = opts.requestTimeoutInSeconds * 1000;
@@ -174,7 +171,6 @@ var NodeBittrexApi = function(options) {
     return sendRequest(options);
   };
 
-  var websocketGlobalTickers = false;
   var websocketGlobalTickerCallback;
   var websocketMarkets = {};
   var websocketMarketsStore = {};
@@ -185,9 +181,7 @@ var NodeBittrexApi = function(options) {
   var websocketEvents = {};
 
   var resetWs = function() {
-    websocketGlobalTickers = false;
     websocketGlobalTickerCallback = undefined;
-//    websocketMarkets = {};
     websocketMarketsCallbacks = [];
   };
 
@@ -311,35 +305,6 @@ var NodeBittrexApi = function(options) {
           return true;
         },
         connected: function() {
-/*
-          if (websocketGlobalTickers) {
-            wsclient.call(opts.websockets_hubs, 'SubscribeToSummaryDeltas').done(function(err, result) {
-              if (err) {
-                return console.error(err);
-              }
-
-              if (result === true) {
-                ((opts.verbose) ? console.log('Subscribed to global tickers') : '');
-              }
-            });
-          }
-
-          if (websocketMarkets.length > 0) {
-            websocketMarkets.forEach(function(market) {
-              wsclient.call(opts.websockets_hubs, 'SubscribeToExchangeDeltas', market).done(function(err, result) {
-                if (err) {
-                  return console.error(err);
-                }
-
-                if (result === true) {
-                  ((opts.verbose) ? console.log('Subscribed to ' + market) : '');
-                }
-
-              });
-            });
-          }
-          ((opts.verbose) ? console.log('Websocket connected') : '');
-*/
         }
       };
 
@@ -362,22 +327,22 @@ var NodeBittrexApi = function(options) {
             if (websocketGlobalTickerCallback) {
               websocketGlobalTickerCallback(M, wsclient);
             }
-            if (websocketMarketsCallbacks.length > 0) {
-              websocketMarketsCallbacks.forEach(function(callback) {
-                callback(M, wsclient);
-              });
-            }
+            // if (websocketMarketsCallbacks.length > 0) {
+            //   websocketMarketsCallbacks.forEach(function(callback) {
+            //     callback(M, wsclient);
+            //   });
+            // }
           });
         } else {
           // ((opts.verbose) ? console.log('Unhandled data', data) : '');
           if (websocketGlobalTickerCallback) {
             websocketGlobalTickerCallback({'unhandled_data' : data}, wsclient);
           }
-          if (websocketMarketsCallbacks.length > 0) {
-            websocketMarketsCallbacks.forEach(function(callback) {
-              callback({'unhandled_data' : data}, wsclient);
-            });
-          }
+          // if (websocketMarketsCallbacks.length > 0) {
+          //   websocketMarketsCallbacks.forEach(function(callback) {
+          //     callback({'unhandled_data' : data}, wsclient);
+          //   });
+          // }
         }
       } catch (e) {
         ((opts.verbose) ? console.error(e) : '');
@@ -462,7 +427,6 @@ var NodeBittrexApi = function(options) {
           oB.Sells = mergeOrderbookDeltas(oB.Sells, i.Sells);
         }
         Array.prototype.push.apply((oB.Fills || []), i.Fills);
-//        console.log(oB.Fills.length + ' elements in ' + marketName);
       }
     }
     emit('exchange delta',decomp, oB);
@@ -503,11 +467,6 @@ var NodeBittrexApi = function(options) {
             ((opts.verbose) ? console.log('SubscribeToSummaryDeltas: ', result) : '');
             wsclient.on(opts.websockets_hubs, 'uS', summaryDelta);
           })
-/*
-          websocketGlobalTickers = true;
-          websocketGlobalTickerCallback = callback;
-          setMessageReceivedWs();
-*/
         }, force);
       },
       subscribe: function(markets, force) {
@@ -527,7 +486,6 @@ var NodeBittrexApi = function(options) {
                 ((opts.verbose) ? console.log('QueryExchangeState: ', typeof result, result) : '');
                 if(typeof result === 'string') {
                   var oB = StoL.expandKeys(decompressMessage(result));
-//                  console.log(JSON.stringify(oB,null,1));
                   if (!websocketMarkets[oB.MarketName]) {
                     websocketMarkets[oB.MarketName] = {};
                   }
