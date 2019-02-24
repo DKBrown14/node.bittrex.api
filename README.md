@@ -13,7 +13,7 @@ This is a seriously modified fork of the original library.
 
 Most of the rest of the text following is unchanged from the upstream source. The documentation will change as I get the time to update it.
 
-
+----
 Also, the **websocket code has changed** after Bittrex switched to using Cloudflare
 so please see the new ``Websockets`` documentation and updated unit tests and
 examples in the ``examples/`` folder.
@@ -66,6 +66,7 @@ Here is a small checklist you should go through before you start:
 
 Quick start
 ----
+Don't do this as the NPM repository is the wrong version. -- See the advanced Start below.
 ```sh
 $ npm install node-bittrex-api
 ```
@@ -173,43 +174,41 @@ you have not run ``websockets.client`` yourself. See ``examples/`` for a better
 understanding.
 
 
-#### websockets.listen
-This will subscribe to just the global ticker updates.
+#### websockets.listen, websockets.subscribe
+This will subscribe to the global ticker updates and subscribe to several markets.
 
-Note: It is recommended to use this in ``onConnect()`` - see example ``examples/``.
-
-```javascript
-bittrex.websockets.listen(function(data, client) {
-  if (data.M === 'updateSummaryState') {
-    data.A.forEach(function(data_for) {
-      data_for.Deltas.forEach(function(marketsDelta) {
-        console.log('Ticker Update for '+ marketsDelta.MarketName, marketsDelta);
-      });
-    });
-  }
-});
-```
-
-
-#### websockets.subscribe
-This will subscribe to the specified markets data. To build
-your candle data, order book and market history, etc. you will need to subscribe
-to the individual markets you wish to watch. You can subscribe to all of them.
-
-This can be called multiple times.
-
-Note: It is recommended to use this in ``onConnect()`` - see example ``examples/``.
+Note: It is recommended to use this in ``onConnect()`` -
 
 ```javascript
-bittrex.websockets.subscribe(['BTC-ETH','BTC-SC','BTC-ZEN'], function(data, client) {
-  if (data.M === 'updateExchangeState') {
-    data.A.forEach(function(data_for) {
-      console.log('Market Update for '+ data_for.MarketName, data_for);
-    });
+const bittrex = require('node-bittrex-api');
+
+bittrex.options({
+  websockets: {
+    onConnect: function() {
+    bittrex.websockets.listen();
+    bittrex.websockets.subscribe(['BTC-ETH','BTC-SC','BTC-ZEN']);
   }
 });
-```
 
+bittrex.websockets.client(function(client) {
+  // connected - you can do any one-off connection events here
+  //
+  // Note: Reoccuring events like listen() and subscribe() should be done
+  // in onConnect so that they are fired during a reconnection event.
+  (verbose ? console.log('Connected') : '');
+});
+```
+#### These event handlers are called whenever a websocket message is received from bittrex. You can duplicate these if needed, multiple handlers will be called.
+
+```javascript
+bittrex.on('summary delta', function(msg) {
+  console.log('Summary Delta', JSON.stringify(msg, null, 1));
+});
+bittrex.on('exchange delta', function(msg, orderbook) {
+  console.log('Exchange Delta:', JSON.stringify(msg,null,1));
+  console.log('Orderbook:', JSON.stringify(orderbook,null,1));
+});
+```
 
 #### Websocket serviceHandlers example
 You can override the libraries logic for the following events. Note, this will
@@ -243,40 +242,18 @@ reconnecting: function (retry { inital: true/false, count: 0} ) {
 }
 ```
 
-
-Streams
---
-Streams have been removed
-
-
-
 Examples
 --
 After configuration you can use the object right away:
 example #1
 ```javascript
-bittrex.getmarketsummaries( function( data, err ) {
-  if (err) {
-    return console.error(err);
-  }
-  for( var i in data.result ) {
-    bittrex.getticker( { market : data.result[i].MarketName }, function( ticker ) {
-      console.log( ticker );
-    });
-  }
-});
+var data = await bittrex.getmarketsummaries(  );
+for( var i in data.result ) {
+  bittrex.getticker( { market : data.result[i].MarketName }).then( ticker=> {
+    console.log( ticker );
+  });
+}
 ```
-
-example #2
-```javascript
-bittrex.getbalance({ currency : 'BTC' }, function( data, err ) {
-  if (err) {
-    return console.error(err);
-  }
-  console.log( data );
-});
-```
-
 
 Libraries
 --
