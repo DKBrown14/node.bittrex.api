@@ -20,8 +20,11 @@ var NodeBittrexApi = function(options) {
     jsonic = require('jsonic'),
     signalR = require('signalr-client'),
     wsclient,
+    con,
     cloudscraper = require('cloudscraper'),
-    zlib = require('zlib');
+    zlib = require('zlib'),
+    mysql = require('mysql'),
+    stream = require('stream');
 
 
   var default_request_options = {
@@ -77,6 +80,53 @@ var NodeBittrexApi = function(options) {
   }
 
   var lastRequest = (new Date()).getTime();
+
+// Connect to a database and send the data as if it were received from the exchange.
+  var streamData = function(config) {
+    // console.log('Starting db stream with config:\n', JSON.stringify(config,null,1));
+    con = mysql.createConnection(config);
+    con.connect(function (err) {
+      if (err) throw err;
+    });
+    con.query('SELECT COUNT(*) AS rowCount FROM bittrexBacktest', function (err, result) {
+      // console.log(typeof result, result);
+      var totalRows = result[0].rowCount;
+      // console.log('totalRows = ', totalRows);
+      for(var cnt = 0; cnt < totalRows; cnt+=50000) {
+        var sql = 'SELECT * FROM `bittrexBacktest` ORDER BY `ds` LIMIT ' + cnt + ',' + 50000;
+        // console.log(sql);
+        con.query(sql, function (err, rows) {
+          if(err) throw err;
+          for (var i = 0, rowcnt = rows.length; i < rowcnt; i++) {
+            var row = rows[i];
+            var data = JSON.parse(row.data);
+            var type = data.t;
+            switch(type) {
+              case 'uE':
+              exchangeDelta(data.m);
+              break;
+              case 'uB':
+              updateBalance(data.m);
+              break;
+              case 'uO':
+              updateOrder(data.m);
+              break;
+              case 'uS':
+              summaryDelta(data.m);
+              break;
+              case 'QES':
+              queryExchangeState(data.m, data.e);
+              break;
+              default:
+              console.log('Unknown message type from database');
+              break;
+            }
+          }
+        })
+      }
+      con.end();
+    })
+  }
 
 // function to rate limit all websocket client.call function calls
   var wsCall = limit(function(...a) {
@@ -171,21 +221,22 @@ var NodeBittrexApi = function(options) {
     return sendRequest(options);
   };
 
-  var websocketGlobalTickerCallback;
   var websocketMarkets = {};
   var websocketMarketsStore = {};
 
-  var websocketMarketsCallbacks = [];
   var websocketLastMessage = (new Date()).getTime();
   var websocketWatchDog = undefined;
   var websocketEvents = {};
 
   var resetWs = function() {
-    websocketGlobalTickerCallback = undefined;
-    websocketMarketsCallbacks = [];
   };
 
   var connectws = function(callback, force) {
+    if (opts.backtest && opts.backtest.enabled) {
+      streamData(opts.backtest.db);
+      if (callback) return callback(wsclient);
+      // return wsclient;
+    }
     if (wsclient && !force && callback) {
       return callback(wsclient);
     }
@@ -317,41 +368,7 @@ var NodeBittrexApi = function(options) {
     return wsclient;
   };
 
-  var setMessageReceivedWs = function() {
-    wsclient.serviceHandlers.messageReceived = function(message) {
-      websocketLastMessage = (new Date()).getTime();
-      try {
-        var data = jsonic(message.utf8Data);
-        if (data && data.M) {
-          data.M.forEach(function(M) {
-            if (websocketGlobalTickerCallback) {
-              websocketGlobalTickerCallback(M, wsclient);
-            }
-            // if (websocketMarketsCallbacks.length > 0) {
-            //   websocketMarketsCallbacks.forEach(function(callback) {
-            //     callback(M, wsclient);
-            //   });
-            // }
-          });
-        } else {
-          // ((opts.verbose) ? console.log('Unhandled data', data) : '');
-          if (websocketGlobalTickerCallback) {
-            websocketGlobalTickerCallback({'unhandled_data' : data}, wsclient);
-          }
-          // if (websocketMarketsCallbacks.length > 0) {
-          //   websocketMarketsCallbacks.forEach(function(callback) {
-          //     callback({'unhandled_data' : data}, wsclient);
-          //   });
-          // }
-        }
-      } catch (e) {
-        ((opts.verbose) ? console.error(e) : '');
-      }
-      return false;
-    };
-  };
-
-  var mergeOrderbookDeltas = function(orderbook, deltas) {
+  var mergeOrderbookDeltas = function(orderbook, deltas, direction) {
     var idx;
     var ele;
     var i;
@@ -383,33 +400,52 @@ var NodeBittrexApi = function(options) {
           break;
       }
     }
-    return orderbook.sort((a, b) => (a.Rate > b.Rate) ? 1 : (b.Rate > a.Rate) ? -1 : 0);
+    ((direction) ?
+      orderbook.sort((a, b) => (a.Rate > b.Rate) ? 1 : (b.Rate > a.Rate) ? -1 : 0) :
+      orderbook.sort((a, b) => (a.Rate < b.Rate) ? 1 : (b.Rate < a.Rate) ? -1 : 0));
+    orderbook.length = Math.min(orderbook.length, 500);   // trim orderbook to 500 elements
+    return orderbook;
   };
 
+  var queryExchangeState = function(msg, market) {
+    ((opts.verbose) ? console.log('QueryExchangeState: ', typeof msg, msg) : '');
+    if(typeof msg === 'string') {
+      emit('QueryExchangeState', (new Date()).getTime(), market, msg)
+      var oB = StoL.expandKeys(decompressMessage(msg));
+      if (!websocketMarkets[oB.MarketName]) {
+        websocketMarkets[oB.MarketName] = {};
+      }
+      websocketMarkets[oB.MarketName] = oB;
+    }
+  };
   var updateBalance = function(msg) {
     websocketLastMessage = (new Date()).getTime();
+    emit('updateBalance', websocketLastMessage, msg);
     var decomp = decompressMessage(msg);
     decomp = StoL.expandKeys(decomp, 'uB');
     emit('balance update',decomp);
     ((opts.debug) ? console.log('Balance Update\n' + JSON.stringify(decomp,null,2)) : '');
-  }
+  };
   var updateOrder = function(msg) {
     websocketLastMessage = (new Date()).getTime();
+    emit('updateOrder', websocketLastMessage, msg);
     var decomp = decompressMessage(msg);
     decomp = StoL.expandKeys(decomp, 'uO');
     emit('order update',decomp);
     ((opts.debug) ? console.log('Order Update\n' + JSON.stringify(decomp,null,2)) : '');
-  }
+  };
   var summaryDelta = function(msg) {
     websocketLastMessage = (new Date()).getTime();
+    emit('summaryDelta', websocketLastMessage, msg);
     var decomp = decompressMessage(msg);
     decomp = StoL.expandKeys(decomp);
     emit('summary delta',decomp);
     ((opts.debug) ? console.log('Summary Delta\n' + JSON.stringify(decomp,null,2)) : '');
 
-  }
+  };
   var exchangeDelta = function(msg) {
     websocketLastMessage = (new Date()).getTime();
+    emit('exchangeDelta', websocketLastMessage, msg);
     var decomp = decompressMessage(msg);
     decomp = StoL.expandKeys(decomp);
     var marketName = decomp.MarketName;
@@ -423,16 +459,17 @@ var NodeBittrexApi = function(options) {
       var i;
       while( (i = m.shift()) !== undefined ) {
         if(oB.Nonce <= i.Nonce) {
-          oB.Buys = mergeOrderbookDeltas(oB.Buys, i.Buys);
-          oB.Sells = mergeOrderbookDeltas(oB.Sells, i.Sells);
+          oB.Buys = mergeOrderbookDeltas(oB.Buys, i.Buys, true);      // sort ascending
+          oB.Sells = mergeOrderbookDeltas(oB.Sells, i.Sells, false);  // sort decending
         }
         Array.prototype.push.apply((oB.Fills || []), i.Fills);
+        ((opts.debug1) ? console.log('Fills for:', marketName, 'Count:', oB.Fills.length) : '');
       }
     }
     emit('exchange delta',decomp, oB);
     ((opts.debug) ? console.log('Exchange Delta\n' + JSON.stringify(decomp,null,2)) : '');
 
-  }
+  };
   var decompressMessage = function(message) {
     let raw = new Buffer.from(message, 'base64')
     let inflated = zlib.inflateRawSync(raw);
@@ -445,7 +482,7 @@ var NodeBittrexApi = function(options) {
         handlers[i](...data);
       }
     }
-  }
+  };
 
   return {
     options: function(options) {
@@ -483,16 +520,8 @@ var NodeBittrexApi = function(options) {
                 if(err) {
                   return console.error('QueryExchangeState Error:',err);
                 }
-                ((opts.verbose) ? console.log('QueryExchangeState: ', typeof result, result) : '');
-                if(typeof result === 'string') {
-                  var oB = StoL.expandKeys(decompressMessage(result));
-                  if (!websocketMarkets[oB.MarketName]) {
-                    websocketMarkets[oB.MarketName] = {};
-                  }
-                  websocketMarkets[oB.MarketName] = oB;
-                }
+                queryExchangeState(result, market);
               });
-
             })
           });
         }, force);
@@ -608,8 +637,8 @@ var NodeBittrexApi = function(options) {
     getdeposithistory: function(options) {
       return credentialApiCall(opts.baseUrl + '/account/getdeposithistory', options);
     },
-    getorderhistory: function(options, callback) {
-      credentialApiCall(opts.baseUrl + '/account/getorderhistory', callback, options || {});
+    getorderhistory: function(options) {
+      credentialApiCall(opts.baseUrl + '/account/getorderhistory', options || {});
     },
     getorder: function(options) {
       return credentialApiCall(opts.baseUrl + '/account/getorder', options);
